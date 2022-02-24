@@ -1,14 +1,21 @@
 from typing import Optional
 
-from fastapi import FastAPI,HTTPException
+from fastapi import FastAPI, HTTPException,Request,status,Form,Header
 from pydantic import BaseModel,Field
 from uuid import UUID
+from starlette.responses import JSONResponse
+
+class NegativeNumberException(Exception):
+    def __init__(self,books_to_return):
+        self.books_to_return = books_to_return
+
+
 
 app = FastAPI()
 
 class Book(BaseModel):
     id:UUID
-    title:str =Field(min_length=1)
+    title: str = Field(min_length=1)
     author:str =Field(min_length=1,max_length=100)
     description:Optional[str] = Field(title='Description of the book',
                            max_length=100,
@@ -26,12 +33,45 @@ class Book(BaseModel):
             }
         }
 
+class BookNoRating(BaseModel):
+    id:UUID
+    title:str=Field(min_length=1)
+    author:str
+    description:Optional[str] = Field(
+        None,
+        title="Description of the Book",
+        min_length=1,
+        max_length=100
+    )
 
 BOOKS = []
 
 
+@app.exception_handler(NegativeNumberException)
+async def negative_number_expection_handler(request:Request,exception:NegativeNumberException):
+
+    return JSONResponse(
+        status_code=418,
+        content={"message":f"Hey , why do you want {exception.books_to_return} "
+                           f"book? You need to read more !"
+                 }
+    )
+
+
+@app.post("/books/login")
+async def book_login(username:str=Form(...),password:str=Form(...)):
+    return {"username":username,"password":password}
+
+
+@app.get("/header")
+async def read_header(random_header:Optional[str] = Header(None)):
+    return {"Random-header":random_header}
+
 @app.get("/")
 async def read_all_books(books_to_return:Optional[int]=None):
+
+    if books_to_return and books_to_return < 0:
+        raise NegativeNumberException(books_to_return=books_to_return)
     if len(BOOKS) < 1:
         create_book_no_api()
 
@@ -44,12 +84,19 @@ async def read_all_books(books_to_return:Optional[int]=None):
         return new_books
     return BOOKS
 
-@app.post("/")
+@app.post("/",status_code=status.HTTP_201_CREATED)
 async def create_book(book:Book):
     BOOKS.append(book)
     return book
 
 @app.get('/book/{book_id}')
+async def read_book(book_id:UUID):
+    for x in BOOKS:
+        if x.id == book_id:
+            return x
+    raise raise_item_cannot_be_found_exception()
+
+@app.get('/book/rating/{book_id}',response_model=BookNoRating)
 async def read_book(book_id:UUID):
     for x in BOOKS:
         if x.id == book_id:
